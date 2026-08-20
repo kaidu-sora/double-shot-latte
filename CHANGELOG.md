@@ -5,6 +5,21 @@ All notable changes to Double Shot Latte will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-20
+
+Fork build (kaidu-sora). Carries the four fixes proposed upstream in
+obra/double-shot-latte#36; see that PR for full rationale.
+
+### Fixed
+- **Plugin was inert**: `--disallowedTools '*'` also denied the internal `StructuredOutput` tool that `--json-schema` requires, so every judgement failed and every stop was approved. Replaced with an explicit denylist.
+- **Judge tool surface**: `Skill`, `ToolSearch`, `Workflow` and `Cron*` survived the old denylist, and `ToolSearch` can load MCP tools on demand. Denylist widened and `--strict-mcp-config` added; judge now holds `StructuredOutput` only. Side effect: ~26k → ~3.3k cache-creation tokens, $0.05-0.07 → $0.024 and 13-27s → ~7s per stop.
+- **Context window**: `tail -n 4` counts transcript lines, not messages, and routinely excluded the assistant's closing message behind thinking blocks, tool calls and session bookkeeping — causing both spurious continuations and silent non-continuation. Now filters to message-bearing entries and restores the most recent user turn.
+- **Test suites**: both entry points referenced pre-1.2.0 paths and scored PASS on scenarios they never ran.
+- **Unix portability**: restored POSIX `$0` in `run-hook.cmd` (regression of the 1.1.5 dash fix).
+
+### Added
+- Regression scenarios 66 and 67 in real Claude Code transcript shape.
+
 ## [1.2.0] - 2026-02-25
 
 ### Fixed
