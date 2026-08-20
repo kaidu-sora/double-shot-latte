@@ -116,6 +116,13 @@ Default to STOP when uncertain."
 # Run claude in the dedicated working directory
 # Model can be configured via DOUBLE_SHOT_LATTE_MODEL env var (default: haiku)
 # Timeout can be configured via DOUBLE_SHOT_LATTE_TIMEOUT env var (default: 30s)
+# Tool denylist for the judge subprocess.
+# NOTE: '*' cannot be used here -- it also denies the internal StructuredOutput tool
+# that --json-schema depends on, which makes every judgement fail. Deny takes
+# precedence over --allowedTools, and an empty --allowedTools enforces nothing, so an
+# explicit denylist is the only working way to strip the judge down to StructuredOutput.
+# --strict-mcp-config additionally prevents any MCP server from being loaded.
+JUDGE_DENIED_TOOLS='Bash BashOutput KillShell Edit MultiEdit Write Read NotebookRead NotebookEdit Glob Grep LS Task Agent ListAgents SendMessage TaskOutput TaskStop Workflow Skill SlashCommand ToolSearch WebFetch WebSearch TodoWrite Artifact SendUserFile AskUserQuestion EnterPlanMode ExitPlanMode EnterWorktree ExitWorktree Monitor ScheduleWakeup CronCreate CronDelete CronList PushNotification RemoteTrigger DesignSync ReportFindings EndConversation ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool mcp__*'
 JUDGE_MODEL="${DOUBLE_SHOT_LATTE_MODEL:-haiku}"
 JUDGE_TIMEOUT="${DOUBLE_SHOT_LATTE_TIMEOUT:-30}"
 CLAUDE_RESPONSE=$(cd "$CLAUDE_WORK_DIR" && echo "$EVALUATION_PROMPT" | \
@@ -124,7 +131,8 @@ CLAUDE_RESPONSE=$(cd "$CLAUDE_WORK_DIR" && echo "$EVALUATION_PROMPT" | \
     --output-format json \
     --json-schema "$JSON_SCHEMA" \
     --system-prompt "$SYSTEM_PROMPT" \
-    --disallowedTools '*' 2>/dev/null)
+    --disallowedTools "$JUDGE_DENIED_TOOLS" \
+    --strict-mcp-config 2>/dev/null)
 CLAUDE_EXIT_CODE=$?
 
 # Check if claude command succeeded (exit 124 = timeout)
