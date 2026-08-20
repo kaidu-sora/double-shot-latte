@@ -64,11 +64,46 @@ if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
     exit 0
 fi
 
-# Extract the last few exchanges from the transcript.
-# JSONL files have one JSON object per line; lines from parallel agents can be
-# megabytes each. Take the last 4 lines then cap total size so the judge model
-# gets classification-level context, not a firehose.
-RECENT_CONTEXT=$(tail -n 4 "$TRANSCRIPT_PATH" | jq -s '.' 2>/dev/null | head -c 32000)
+# Build the judge's context window.
+#
+# Transcript lines are not messages. A single assistant turn can spend its
+# final lines on thinking blocks, tool_use/tool_result pairs and session
+# bookkeeping (last-prompt, custom-title, mode, bridge-session), so a raw
+# `tail -n 4` frequently excludes the assistant's closing message -- the one
+# thing the classification actually depends on. Observed failures in both
+# directions: continuing after the assistant had asked the user a question,
+# and stopping mid-task, purely because the window held no assistant text.
+#
+# Scan a wider slice of lines, keep only entries carrying user or assistant
+# text, and pass the judge the last few of those. Filtering out tool_result
+# payloads also removes the megabyte-per-line firehose the size cap existed
+# to contain. Both the live transcript shape (.type/.message.content) and
+# the flat {role, content} shape used by test/evals are accepted.
+RECENT_CONTEXT=$(tail -n 80 "$TRANSCRIPT_PATH" 2>/dev/null \
+    | jq -R 'fromjson? // empty' 2>/dev/null \
+    | jq -s '[ .[]
+        | select(.isSidechain != true)
+        | select(.type == "user" or .type == "assistant"
+                 or .role == "user" or .role == "assistant")
+        | { role: (.message.role // .role // .type),
+            text: ((.message.content // .content)
+                   | if type == "string" then .
+                     elif type == "array" then
+                       ([ .[] | select(.type == "text") | .text ] | join("\n"))
+                     else "" end) }
+        | select((.text | length) > 0) ] as $msgs
+      | ($msgs | map(select(.role == "user")) | last) as $last_user
+      | ($msgs[-6:]) as $window
+      | if ($window | any(.role == "user")) or ($last_user == null)
+        then $window
+        else [$last_user] + $window
+        end' 2>/dev/null | head -c 32000)
+
+# If filtering found no message text, fall back to the raw tail rather than
+# judging on nothing.
+if [ -z "$RECENT_CONTEXT" ] || [ "$RECENT_CONTEXT" = "[]" ]; then
+    RECENT_CONTEXT=$(tail -n 4 "$TRANSCRIPT_PATH" | jq -s '.' 2>/dev/null | head -c 32000)
+fi
 
 # Create a JSON schema for the response
 JSON_SCHEMA='{"type":"object","properties":{"should_continue":{"type":"boolean"},"reasoning":{"type":"string"}},"required":["should_continue","reasoning"]}'
